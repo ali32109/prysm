@@ -308,16 +308,16 @@ func TestStateMachineManager_findStateMachine(t *testing.T) {
 
 func TestStateMachineManager_highestStartBlock(t *testing.T) {
 	smm := newStateMachineManager()
-	_, err := smm.highestStartBlock()
+	_, err := smm.highestStartSlot()
 	assert.ErrorContains(t, "no state machine exist", err)
 	smm.addStateMachine(64)
 	smm.addStateMachine(128)
 	smm.addStateMachine(196)
-	start, err := smm.highestStartBlock()
+	start, err := smm.highestStartSlot()
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(196), start, "Incorrect highest start block")
 	assert.NoError(t, smm.removeStateMachine(196))
-	start, err = smm.highestStartBlock()
+	start, err = smm.highestStartSlot()
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(128), start, "Incorrect highest start block")
 }
