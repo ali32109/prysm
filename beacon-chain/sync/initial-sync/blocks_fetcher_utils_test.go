@@ -188,10 +188,20 @@ func TestBlocksFetcher_currentHeadAndTargetEpochs(t *testing.T) {
 			}
 			require.NoError(t, mc.State.SetSlot(tt.ourHeadSlot))
 			fetcher.mode = tt.syncMode
-			headEpoch, targetEpoch, peers := fetcher.currentHeadAndTargetEpochs()
+
+			// Head and target epochs calculation.
+			headEpoch, targetEpoch, peers := fetcher.calculateHeadAndTargetEpochs()
 			assert.Equal(t, tt.expectedHeadEpoch, headEpoch, "Unexpected head epoch")
 			assert.Equal(t, tt.targetEpoch, targetEpoch, "Unexpected target epoch")
 			assert.Equal(t, tt.targetEpochSupport, len(peers), "Unexpected number of peers supporting target epoch")
+
+			// Best finalized and non-finalized slots.
+			finalizedSlot := tt.targetEpoch * params.BeaconConfig().SlotsPerEpoch
+			if tt.syncMode == modeStopOnFinalizedEpoch {
+				assert.Equal(t, finalizedSlot, fetcher.bestFinalizedSlot(), "Unexpected finalized slot")
+			} else {
+				assert.Equal(t, finalizedSlot, fetcher.bestNonFinalizedSlot(), "Unexpected non-finalized slot")
+			}
 		})
 	}
 }

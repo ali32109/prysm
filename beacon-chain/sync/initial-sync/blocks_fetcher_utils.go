@@ -8,7 +8,6 @@ import (
 	"github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
 	"github.com/prysmaticlabs/prysm/beacon-chain/flags"
 	p2ppb "github.com/prysmaticlabs/prysm/proto/beacon/p2p/v1"
-	"github.com/prysmaticlabs/prysm/shared/featureconfig"
 	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
@@ -23,25 +22,25 @@ func (f *blocksFetcher) nonSkippedSlotAfter(ctx context.Context, slot uint64) (u
 	ctx, span := trace.StartSpan(ctx, "initialsync.nonSkippedSlotAfter")
 	defer span.End()
 
-	headEpoch, targetEpoch, peers := f.currentHeadAndTargetEpochs()
+	headEpoch, targetEpoch, peers := f.calculateHeadAndTargetEpochs()
 	log.WithFields(logrus.Fields{
 		"start":       slot,
 		"headEpoch":   headEpoch,
 		"targetEpoch": targetEpoch,
 	}).Debug("Searching for non-skipped slot")
-	// Exit early, if no peers with high enough finalized epoch are found.
+
+	// Exit early if no peers with epoch higher than our known head are found.
 	if targetEpoch <= headEpoch {
 		return 0, errSlotIsTooHigh
 	}
-	var err error
-	if featureconfig.Get().EnablePeerScorer {
-		peers, err = f.filterScoredPeers(ctx, peers, peersPercentagePerRequest)
-	} else {
-		peers, err = f.filterPeers(peers, peersPercentagePerRequest)
-	}
+
+	// Transform peer list to avoid eclipsing (filter, shuffle, trim).
+	peers, err := f.filterPeers(ctx, peers, peersPercentagePerRequest)
 	if err != nil {
 		return 0, err
 	}
+
+	// Exit early if no peers are ready.
 	if len(peers) == 0 {
 		return 0, errNoPeersAvailable
 	}
@@ -138,9 +137,9 @@ func (f *blocksFetcher) bestNonFinalizedSlot() uint64 {
 	return targetEpoch * params.BeaconConfig().SlotsPerEpoch
 }
 
-// currentHeadAndTargetEpochs return node's current head epoch, along with the best known target
+// calculateHeadAndTargetEpochs return node's current head epoch, along with the best known target
 // epoch. For the latter peers supporting that target epoch are returned as well.
-func (f *blocksFetcher) currentHeadAndTargetEpochs() (uint64, uint64, []peer.ID) {
+func (f *blocksFetcher) calculateHeadAndTargetEpochs() (uint64, uint64, []peer.ID) {
 	var targetEpoch, headEpoch uint64
 	var peers []peer.ID
 	if f.mode == modeStopOnFinalizedEpoch {
