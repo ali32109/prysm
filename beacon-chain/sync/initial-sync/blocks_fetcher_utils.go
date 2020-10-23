@@ -23,15 +23,7 @@ func (f *blocksFetcher) nonSkippedSlotAfter(ctx context.Context, slot uint64) (u
 	ctx, span := trace.StartSpan(ctx, "initialsync.nonSkippedSlotAfter")
 	defer span.End()
 
-	var targetEpoch, headEpoch uint64
-	var peers []peer.ID
-	if f.mode == modeStopOnFinalizedEpoch {
-		headEpoch = f.finalizationFetcher.FinalizedCheckpt().Epoch
-		targetEpoch, peers = f.p2p.Peers().BestFinalized(params.BeaconConfig().MaxPeersToSync, headEpoch)
-	} else {
-		headEpoch = helpers.SlotToEpoch(f.headFetcher.HeadSlot())
-		targetEpoch, peers = f.p2p.Peers().BestNonFinalized(flags.Get().MinimumSyncPeers, headEpoch)
-	}
+	headEpoch, targetEpoch, peers := f.currentHeadAndTargetEpochs()
 	log.WithFields(logrus.Fields{
 		"start":       slot,
 		"headEpoch":   headEpoch,
@@ -144,4 +136,19 @@ func (f *blocksFetcher) bestNonFinalizedSlot() uint64 {
 	headEpoch := helpers.SlotToEpoch(f.headFetcher.HeadSlot())
 	targetEpoch, _ := f.p2p.Peers().BestNonFinalized(flags.Get().MinimumSyncPeers*2, headEpoch)
 	return targetEpoch * params.BeaconConfig().SlotsPerEpoch
+}
+
+// currentHeadAndTargetEpochs return node's current head epoch, along with the best known target
+// epoch. For the latter peers supporting that target epoch are returned as well.
+func (f *blocksFetcher) currentHeadAndTargetEpochs() (uint64, uint64, []peer.ID) {
+	var targetEpoch, headEpoch uint64
+	var peers []peer.ID
+	if f.mode == modeStopOnFinalizedEpoch {
+		headEpoch = f.finalizationFetcher.FinalizedCheckpt().Epoch
+		targetEpoch, peers = f.p2p.Peers().BestFinalized(params.BeaconConfig().MaxPeersToSync, headEpoch)
+	} else {
+		headEpoch = helpers.SlotToEpoch(f.headFetcher.HeadSlot())
+		targetEpoch, peers = f.p2p.Peers().BestNonFinalized(flags.Get().MinimumSyncPeers, headEpoch)
+	}
+	return headEpoch, targetEpoch, peers
 }

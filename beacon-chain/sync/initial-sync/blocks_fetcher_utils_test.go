@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kevinms/leakybucket-go"
+	eth "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 	"github.com/prysmaticlabs/prysm/shared/testutil/assert"
 )
 
@@ -87,4 +88,79 @@ func TestBlocksFetcher_nonSkippedSlotAfter(t *testing.T) {
 			t.Logf("Isolated non-skipped slot found in %d iterations", i)
 		}
 	})
+}
+
+func TestBlocksFetcher_currentHeadAndTargetEpochs(t *testing.T) {
+	tests := []struct {
+		name               string
+		mode               syncMode
+		peers              []*peerData
+		headEpoch          uint64
+		targetEpoch        uint64
+		targetEpochSupport int
+	}{
+		{
+			name:               "ignore lower epoch peers (stop on finalized epoch)",
+			mode:               modeStopOnFinalizedEpoch,
+			headEpoch:          4,
+			targetEpoch:        10,
+			targetEpochSupport: 3,
+			peers: []*peerData{
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 8, headSlot: 320},
+				{finalizedEpoch: 8, headSlot: 320},
+				{finalizedEpoch: 10, headSlot: 320},
+				{finalizedEpoch: 10, headSlot: 320},
+				{finalizedEpoch: 10, headSlot: 320},
+			},
+		},
+		{
+			name:               "resolve ties (stop on finalized epoch)",
+			mode:               modeStopOnFinalizedEpoch,
+			headEpoch:          4,
+			targetEpoch:        10,
+			targetEpochSupport: 3,
+			peers: []*peerData{
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 8, headSlot: 320},
+				{finalizedEpoch: 8, headSlot: 320},
+				{finalizedEpoch: 8, headSlot: 320},
+				{finalizedEpoch: 10, headSlot: 320},
+				{finalizedEpoch: 10, headSlot: 320},
+				{finalizedEpoch: 10, headSlot: 320},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mc, p2p, _ := initializeTestServices(t, []uint64{}, tt.peers)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			fetcher := newBlocksFetcher(
+				ctx,
+				&blocksFetcherConfig{
+					headFetcher:         mc,
+					finalizationFetcher: mc,
+					p2p:                 p2p,
+				},
+			)
+			mc.FinalizedCheckPoint = &eth.Checkpoint{
+				Epoch: tt.headEpoch,
+			}
+			fetcher.mode = modeStopOnFinalizedEpoch
+			headEpoch, targetEpoch, peers := fetcher.currentHeadAndTargetEpochs()
+			assert.Equal(t, tt.headEpoch, headEpoch, "Unexpected head epoch")
+			assert.Equal(t, tt.targetEpoch, targetEpoch, "Unexpected target epoch")
+			assert.Equal(t, tt.targetEpochSupport, len(peers), "Unexpected number of peers supporting target epoch")
+		})
+	}
 }
