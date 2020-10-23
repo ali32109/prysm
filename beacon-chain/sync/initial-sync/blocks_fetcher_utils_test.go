@@ -7,6 +7,7 @@ import (
 
 	"github.com/kevinms/leakybucket-go"
 	eth "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
+	p2pt "github.com/prysmaticlabs/prysm/beacon-chain/p2p/testing"
 	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/prysmaticlabs/prysm/shared/testutil/assert"
 	"github.com/prysmaticlabs/prysm/shared/testutil/require"
@@ -87,8 +88,45 @@ func TestBlocksFetcher_nonSkippedSlotAfter(t *testing.T) {
 		if !found {
 			t.Errorf("Isolated non-skipped slot not found in %d iterations: %v", i, expectedSlot)
 		} else {
-			t.Logf("Isolated non-skipped slot found in %d iterations", i)
+			log.Debugf("Isolated non-skipped slot found in %d iterations", i)
 		}
+	})
+
+	t.Run("no peers with higher target epoch available", func(t *testing.T) {
+		peers := []*peerData{
+			{finalizedEpoch: 3, headSlot: 160},
+			{finalizedEpoch: 3, headSlot: 160},
+			{finalizedEpoch: 3, headSlot: 160},
+			{finalizedEpoch: 8, headSlot: 320},
+			{finalizedEpoch: 8, headSlot: 320},
+			{finalizedEpoch: 10, headSlot: 320},
+			{finalizedEpoch: 10, headSlot: 640},
+		}
+		p2p := p2pt.NewTestP2P(t)
+		connectPeers(t, p2p, peers, p2p.Peers())
+		fetcher := newBlocksFetcher(
+			ctx,
+			&blocksFetcherConfig{
+				headFetcher:         mc,
+				finalizationFetcher: mc,
+				p2p:                 p2p,
+			},
+		)
+		mc.FinalizedCheckPoint = &eth.Checkpoint{
+			Epoch: 10,
+		}
+		require.NoError(t, mc.State.SetSlot(12*params.BeaconConfig().SlotsPerEpoch))
+
+		fetcher.mode = modeStopOnFinalizedEpoch
+		slot, err := fetcher.nonSkippedSlotAfter(ctx, 160)
+		assert.ErrorContains(t, errSlotIsTooHigh.Error(), err)
+		assert.Equal(t, uint64(0), slot)
+
+		fetcher.mode = modeNonConstrained
+		require.NoError(t, mc.State.SetSlot(20*params.BeaconConfig().SlotsPerEpoch))
+		slot, err = fetcher.nonSkippedSlotAfter(ctx, 160)
+		assert.ErrorContains(t, errSlotIsTooHigh.Error(), err)
+		assert.Equal(t, uint64(0), slot)
 	})
 }
 
