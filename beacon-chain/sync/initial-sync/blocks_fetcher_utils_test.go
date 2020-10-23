@@ -7,7 +7,9 @@ import (
 
 	"github.com/kevinms/leakybucket-go"
 	eth "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
+	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/prysmaticlabs/prysm/shared/testutil/assert"
+	"github.com/prysmaticlabs/prysm/shared/testutil/require"
 )
 
 func TestBlocksFetcher_nonSkippedSlotAfter(t *testing.T) {
@@ -93,16 +95,20 @@ func TestBlocksFetcher_nonSkippedSlotAfter(t *testing.T) {
 func TestBlocksFetcher_currentHeadAndTargetEpochs(t *testing.T) {
 	tests := []struct {
 		name               string
-		mode               syncMode
+		syncMode           syncMode
 		peers              []*peerData
-		headEpoch          uint64
+		ourFinalizedEpoch  uint64
+		ourHeadSlot        uint64
+		expectedHeadEpoch  uint64
 		targetEpoch        uint64
 		targetEpochSupport int
 	}{
 		{
-			name:               "ignore lower epoch peers (stop on finalized epoch)",
-			mode:               modeStopOnFinalizedEpoch,
-			headEpoch:          4,
+			name:               "ignore lower epoch peers in best finalized",
+			syncMode:           modeStopOnFinalizedEpoch,
+			ourHeadSlot:        5 * params.BeaconConfig().SlotsPerEpoch,
+			expectedHeadEpoch:  4,
+			ourFinalizedEpoch:  4,
 			targetEpoch:        10,
 			targetEpochSupport: 3,
 			peers: []*peerData{
@@ -119,9 +125,11 @@ func TestBlocksFetcher_currentHeadAndTargetEpochs(t *testing.T) {
 			},
 		},
 		{
-			name:               "resolve ties (stop on finalized epoch)",
-			mode:               modeStopOnFinalizedEpoch,
-			headEpoch:          4,
+			name:               "resolve ties in best finalized",
+			syncMode:           modeStopOnFinalizedEpoch,
+			ourHeadSlot:        5 * params.BeaconConfig().SlotsPerEpoch,
+			expectedHeadEpoch:  4,
+			ourFinalizedEpoch:  4,
 			targetEpoch:        10,
 			targetEpochSupport: 3,
 			peers: []*peerData{
@@ -136,6 +144,28 @@ func TestBlocksFetcher_currentHeadAndTargetEpochs(t *testing.T) {
 				{finalizedEpoch: 10, headSlot: 320},
 				{finalizedEpoch: 10, headSlot: 320},
 				{finalizedEpoch: 10, headSlot: 320},
+			},
+		},
+		{
+			name:               "best non-finalized",
+			syncMode:           modeNonConstrained,
+			ourHeadSlot:        5 * params.BeaconConfig().SlotsPerEpoch,
+			expectedHeadEpoch:  5,
+			ourFinalizedEpoch:  4,
+			targetEpoch:        20,
+			targetEpochSupport: 1,
+			peers: []*peerData{
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 3, headSlot: 160},
+				{finalizedEpoch: 8, headSlot: 320},
+				{finalizedEpoch: 8, headSlot: 320},
+				{finalizedEpoch: 10, headSlot: 320},
+				{finalizedEpoch: 10, headSlot: 320},
+				{finalizedEpoch: 10, headSlot: 320},
+				{finalizedEpoch: 15, headSlot: 640},
 			},
 		},
 	}
@@ -154,11 +184,12 @@ func TestBlocksFetcher_currentHeadAndTargetEpochs(t *testing.T) {
 				},
 			)
 			mc.FinalizedCheckPoint = &eth.Checkpoint{
-				Epoch: tt.headEpoch,
+				Epoch: tt.ourFinalizedEpoch,
 			}
-			fetcher.mode = modeStopOnFinalizedEpoch
+			require.NoError(t, mc.State.SetSlot(tt.ourHeadSlot))
+			fetcher.mode = tt.syncMode
 			headEpoch, targetEpoch, peers := fetcher.currentHeadAndTargetEpochs()
-			assert.Equal(t, tt.headEpoch, headEpoch, "Unexpected head epoch")
+			assert.Equal(t, tt.expectedHeadEpoch, headEpoch, "Unexpected head epoch")
 			assert.Equal(t, tt.targetEpoch, targetEpoch, "Unexpected target epoch")
 			assert.Equal(t, tt.targetEpochSupport, len(peers), "Unexpected number of peers supporting target epoch")
 		})
