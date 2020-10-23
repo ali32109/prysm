@@ -289,12 +289,7 @@ func (f *blocksFetcher) fetchBlocksFromPeer(
 	defer span.End()
 
 	var blocks []*eth.SignedBeaconBlock
-	var err error
-	if featureconfig.Get().EnablePeerScorer {
-		peers, err = f.filterScoredPeers(ctx, peers, peersPercentagePerRequest)
-	} else {
-		peers, err = f.filterPeers(peers, peersPercentagePerRequest)
-	}
+	peers, err := f.filterPeers(ctx, peers, peersPercentagePerRequest)
 	if err != nil {
 		return blocks, "", err
 	}
